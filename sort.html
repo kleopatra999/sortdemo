@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<!-- Copyright 2015 Sandeep M -->
+<html>
+<head> <title>Name Sorter</title> </head>
+<body>
+<h1>Name Sorter</h1>
+<script>
+StateEnums = {
+    INACTIVE: 0,
+    LEFTDOWN1: 1, // path = left then down then right. This is left.
+    LEFTDOWN2: 2, // path = left then down then right. This is down.
+    LEFTDOWN3: 3, // path = left then down then right. This is right.
+    RIGHTUP1: 4,
+    RIGHTUP2: 5,
+    RIGHTUP3: 6,
+};
+
+var UNDERTOW = 5; // How many pixels are below the font height. Eg, char 'j'.
+var MAXCHARS = 15; // # of chars max
+var MAXNAMES = 30; // Maximum number of names
+var swapq = []; // Array of arrays. Each subarray has 2 integers - indexes to be swapped
+var namearray; // Array of structs with names and other info for display
+
+/* These are object which are currently moving.
+ * One is going up, other down. They will eventually take each-other's place.
+ */
+var mover1, mover2;
+var timer = null;
+var maxwidth; // Maximum width of name in pixels.
+var SPEED = 25; // Lower is faster
+var FONTHEIGHT = 20;
+var centerX; // x-coordinate of names when they are at rest.
+var rightX; // How much eastwards names can move when going up.
+var leftX; // Minimum x when going up
+
+// Given a name index, what is the Y coordinate. Keeps a few pixels for
+// chars like 'y' or 'j'.
+function getY(idx)
+{
+    return idx * (FONTHEIGHT + UNDERTOW);
+}
+
+function sortButtonClicked() {
+    if (timer != null)
+        clearInterval(timer);
+    var x = document.getElementById("frmNames");
+    var text = x.elements[0].value;
+
+    namearray = [];
+    swapq = [];
+    strings = text.trim().split(/\s+/);
+    var c = document.getElementById("myCanvas");
+    CANVAS_WIDTH = c.width;
+    var ctx = c.getContext("2d");
+    ctx.font = FONTHEIGHT + 'px Arial';
+    ctx.textBaseline = "top";
+    maxwidth = 0;
+    ctx.clearRect(0, 0, 400, 750);
+    var i;
+    var names = [];
+    for (i=0; i<strings.length; i++) {
+        if (i > MAXNAMES)
+            break;
+        var fname = strings[i].substring(0, MAXCHARS-1);
+        names.push(fname);
+        var txtwidth = ctx.measureText(fname).width;
+        if (txtwidth > maxwidth)
+            maxwidth = txtwidth;
+    }
+    centerX = (CANVAS_WIDTH - maxwidth)/2;
+    leftX = centerX - maxwidth - 2;
+    rightX = centerX + maxwidth +2;
+
+    for (i=0; i<names.length; i++) {
+        var fname = names[i];
+        var entry = {
+            name : fname,
+            x :    centerX,
+            y :    getY(i),
+            state : StateEnums.INACTIVE,
+            desty: 0 /* When moving, what's the destination Y coordinate */
+        };
+        ctx.fillText(entry.name, entry.x, entry.y);
+        namearray.push(entry);
+    }
+
+    sort(names);
+    text = "";
+    /*
+    for (i=0; i<names.length; i++)
+        text += names[i] + " ";
+    document.getElementById("demo").innerHTML = text; */
+    mover1 = undefined
+    mover2 = undefined;
+    timer = setInterval(animate, SPEED);
+}
+
+function moveMover(mover) {
+    var ret = false;
+    var c = document.getElementById("myCanvas");
+    var ctx = c.getContext("2d");
+    var m = ctx.measureText(mover.name);
+    ctx.clearRect(mover.x-2, mover.y, m.width+3, FONTHEIGHT+UNDERTOW);
+
+    switch (mover.state) {
+    case StateEnums.LEFTDOWN1: /* Moving west */
+        if (mover.x <= leftX) {
+            // Start moving south.
+            mover.state = StateEnums.LEFTDOWN2;
+            mover.y++;
+        } else {
+            mover.x--;
+        }
+        break;
+    case StateEnums.LEFTDOWN2: // Moving south.
+        if (mover.y === mover1.desty) {
+            // Start moving east
+            mover.state = StateEnums.LEFTDOWN3;
+            mover.x++;
+        } else {
+            mover.y++;
+        }
+        break;
+    case StateEnums.LEFTDOWN3: // Moving east
+        if (mover.x >= centerX) {
+            mover.state = StateEnums.INACTIVE;
+            ret = true;
+        } else {
+            mover.x++;
+        }
+        break;
+    case StateEnums.RIGHTUP1: // Moving east
+        if (mover.x >= rightX) {
+            // Start moving North
+            mover.y--;
+            mover.state = StateEnums.RIGHTUP2;
+        } else {
+            mover.x++;
+        }
+        break;
+    case StateEnums.RIGHTUP2: // Moving north
+        if (mover.y <= mover.desty) {
+            /* begin westward journey */
+            mover.x--;
+            mover.state = StateEnums.RIGHTUP3;
+        } else {
+            mover.y--;
+        }
+        break;
+    case StateEnums.RIGHTUP3: // Moving west
+        if (mover.x <= centerX) {
+            mover.state = StateEnums.INACTIVE;
+            ret = true;
+        } else {
+            mover.x--;
+        }
+        break;
+    }
+
+    ctx.fillText(mover.name, mover.x, mover.y);
+
+    return ret;
+}
+
+// Kicks off movement by changing state and exchanges array elements
+function startAndExchg(a, first, second)
+{
+    entry1 = a[first];
+    entry2 = a[second];
+    if (entry1.y < entry2.y) {
+        entry1.state = StateEnums.LEFTDOWN1;
+        entry1.desty = getY(second);
+
+        entry2.state = StateEnums.RIGHTUP1;
+        entry2.desty = getY(first);
+    } else {
+        entry2.state = StateEnums.LEFTDOWN1;
+        entry2.desty = getY(first);
+
+        entry1.state = StateEnums.RIGHTUP1;
+        entry1.desty = getY(second);
+    }
+
+    mover1 = entry1;
+    mover2 = entry2;
+
+    a[first] = entry2;
+    a[second] = entry1;
+}
+
+function animateDone()
+{
+    mover1 = undefined;
+    mover2 = undefined;
+    if (swapq.length === 0) {
+        clearInterval(timer);
+        timer = null;
+    }
+}
+
+function animate()
+{
+    if (mover1 === undefined) {
+        movers = swapq.shift()
+        var idx1 = movers[0];
+        var idx2 = movers[1];
+        startAndExchg(namearray, idx1, idx2);
+    }
+
+    done1 = moveMover(mover1);
+    done2 = moveMover(mover2);
+    if (done1 && done2)
+        animateDone();
+}
+
+/*  Sort algorithm below this  */
+
+function charAt(s, d)
+{
+    if (d < s.length)
+        return s.charCodeAt(d);
+    else
+        return -1;
+}
+
+function exchg(a, first, second)
+{
+    if (first === second)
+        return;
+    // console.log(a[first] + " <=>" + a[second]);
+    var tmp = a[first];
+    a[first] = a[second];
+    a[second] = tmp;
+    var tuple = [first, second];
+    swapq.push(tuple);
+}
+
+function sort(a)
+{
+    sortActual(a, 0, a.length - 1, 0);
+}
+
+function sortActual(a, lo, hi, d)
+{
+    /* console.log("sortAt:lo=" + lo + ", hi=" + hi + ", d=" + d); */
+    if (hi <= lo)
+        return;
+    var lt = lo;
+    var gt = hi;
+    var i = lo + 1;
+    var v = charAt(a[lo], d);
+    while (i <= gt) {
+        var t = charAt(a[i], d);
+        if (t < v)
+            exchg(a, lt++, i++);
+        else if(t > v)
+            exchg(a, i, gt--);
+        else
+            i++;
+    }
+
+    sortActual(a, lo, lt-1, d);
+    if (v >= 0)
+        sortActual(a, lt, gt, d+1);
+    sortActual(a, gt+1, hi, d);
+}
+
+window.onload = function () {
+    document.getElementById("namelist").focus();
+}
+</script>
+
+<table>
+<tr>
+<td>
+    <b>Names</b> <br>(One name per line)<br>
+    <form id="frmNames" action="no_action.asp">
+      <textarea  rows="30" id="namelist"></textarea>
+    </form>
+    
+</td> 
+
+<td><button onclick="sortButtonClicked()">Sort</button></td>
+
+
+<td><canvas id="myCanvas" width="400" height="750" style="border:1px solid #d3d3d3;">
+Your browser does not support the HTML5 canvas tag.</canvas></td>
+</tr>
+</table>
+Click <a href="prez.txt">here</a> for an interesting list of names.
+<p id="demo"></p>
+</body>
+</html>
